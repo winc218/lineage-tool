@@ -1,0 +1,7 @@
+Login: username=admin, password='admin123', len=8
+User found: True
+Hash: '$2b$12$r8qHTEVuoPXgsUnE/rxYfefhPHJYfdyWVk8tIOXOFSMh1GhKi1KgW'
+verify_password result: True
+bcrypt.checkpw direct: True
+pw bytes: b'admin123'
+hash bytes: b'$2b$12$r8qHTEVuoPXgsUnE/rxYfefhPHJYfdyWVk8tIOXOFSMh1GhKi1KgW'

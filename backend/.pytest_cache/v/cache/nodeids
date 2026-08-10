@@ -1,0 +1,19 @@
+[
+  "app/tests/test_core.py::TestAuth::test_login_success",
+  "app/tests/test_core.py::TestAuth::test_login_wrong_password",
+  "app/tests/test_core.py::TestAuth::test_me",
+  "app/tests/test_core.py::TestExcelImport::test_confirm_import",
+  "app/tests/test_core.py::TestExcelImport::test_parse_excel",
+  "app/tests/test_core.py::TestExcelImport::test_validate_excel",
+  "app/tests/test_core.py::TestJobManagement::test_job_detail",
+  "app/tests/test_core.py::TestJobManagement::test_list_jobs",
+  "app/tests/test_core.py::TestJobManagement::test_update_job",
+  "app/tests/test_core.py::TestLineage::test_graph_has_3_nodes",
+  "app/tests/test_core.py::TestLineage::test_impact_analysis",
+  "app/tests/test_core.py::TestLineage::test_no_cycles",
+  "app/tests/test_core.py::TestLineage::test_trace_analysis",
+  "app/tests/test_core.py::TestSpReconciliation::test_reconcile_logic",
+  "app/tests/test_core.py::TestSpReconciliation::test_sp_overview",
+  "app/tests/test_core.py::TestWorkspace::test_list_members",
+  "app/tests/test_core.py::TestWorkspace::test_list_workspaces"
+]

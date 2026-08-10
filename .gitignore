@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+venv/
+.venv/
+.env
+
+# 数据库和数据文件
+*.db
+data/
+
+# 日志
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 离线包
+lineage-tool-offline/
+
+# 大文件/压缩包
+*.tar
+*.tar.gz
+*.zip
+*.z*
+
+# 临时脚本
+*tmp*.py
+*_dbg*.py
+*_debug*.py
+*_test*.py
+*_migrat*.py
+*_fix*.py
+*_verify*.py
+*_gen*.py
+*_read*.py
+*_ws_body.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml

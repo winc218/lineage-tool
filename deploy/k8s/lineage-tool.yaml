@@ -1,0 +1,173 @@
+# Kubernetes 部署 - 配置（非敏感）
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lineage-tool-config
+  namespace: default
+data:
+  DB_MODE: "sqlite"
+  DATA_DIR: "/app/data"
+  LOG_DIR: "/app/logs"
+  ADMIN_USERNAME: "admin"
+  JWT_EXPIRE_HOURS: "24"
+---
+# Kubernetes 部署 - 敏感信息
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lineage-tool-secret
+  namespace: default
+type: Opaque
+stringData:
+  # 生产环境务必修改！JWT_SECRET 建议用 32 位随机字符串
+  JWT_SECRET: "change-this-to-a-random-32-char-string"
+  CONFIG_ENCRYPT_KEY: "change-this-fernet-key"
+  # 首次启动后建议立即通过页面修改密码，此处仅用于初始化
+  ADMIN_PASSWORD: "change-admin-password"
+---
+# 持久化存储卷
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lineage-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# 部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lineage-tool
+  namespace: default
+  labels:
+    app: lineage-tool
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lineage-tool
+  template:
+    metadata:
+      labels:
+        app: lineage-tool
+    spec:
+      containers:
+        - name: lineage-tool
+          # 使用 build-image.sh 构建后推送到您的镜像仓库
+          # 内网可先 docker save/load 传到 k8s 节点
+          image: lineage-tool:v2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: DB_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: lineage-tool-config
+                  key: DB_MODE
+            - name: DATA_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: lineage-tool-config
+                  key: DATA_DIR
+            - name: LOG_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: lineage-tool-config
+                  key: LOG_DIR
+            - name: ADMIN_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: lineage-tool-config
+                  key: ADMIN_USERNAME
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lineage-tool-secret
+                  key: JWT_SECRET
+            - name: CONFIG_ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lineage-tool-secret
+                  key: CONFIG_ENCRYPT_KEY
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lineage-tool-secret
+                  key: ADMIN_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+          # SQLite 模式下只需 1 副本（多副本会导致数据库冲突）
+          # 如需多副本，请切换 DB_MODE 为 sqlserver 或 goldendb
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: lineage-data-pvc
+        - name: logs
+          emptyDir: {}
+---
+# 服务暴露
+apiVersion: v1
+kind: Service
+metadata:
+  name: lineage-tool-svc
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: lineage-tool
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+---
+# Ingress 入口（可选，用于外部访问）
+# 如 k8s 集群已安装 Ingress Controller 则可使用
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lineage-tool-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: lineage-tool.your-company.com  # 改为您的实际域名
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lineage-tool-svc
+                port:
+                  number: 80
