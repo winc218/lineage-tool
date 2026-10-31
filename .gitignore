@@ -26,6 +26,8 @@ frontend/dist/
 
 # 离线包
 lineage-tool-offline/
+build/
+.pytest_cache/
 
 # 大文件/压缩包
 *.tar

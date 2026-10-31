@@ -14,17 +14,38 @@ from app.models.job import Job, JobSource, JobTarget, TableMeta
 from app.services.lineage_service import rebuild_dependencies
 
 
-def pull_sp_from_git(repo_url: str, branch: str, token: str, sp_dir: str, local_path: str) -> list[dict]:
-    """从 Git 拉取存储过程文件"""
+def pull_sp_from_git(repo_url: str, branch: str, token: str, sp_dir: str, local_path: str,
+                     protocol: str = "https", username: str = "", ssh_key: str = "") -> list[dict]:
+    """从 Git 拉取存储过程文件，支持 HTTPS 和 SSH 两种协议"""
     import git
+    import tempfile
+
+    clone_kwargs = {"branch": branch}
+
+    if protocol == "ssh":
+        # SSH 协议：需要设置 SSH key
+        if ssh_key:
+            ssh_cmd = _setup_ssh_key(ssh_key)
+            clone_kwargs["env"] = {"GIT_SSH_COMMAND": ssh_cmd}
+
     if os.path.exists(local_path):
         repo = git.Repo(local_path)
-        repo.remotes.origin.pull()
+        if protocol == "ssh" and ssh_key:
+            with repo.git.custom_environment(GIT_SSH_COMMAND=ssh_cmd):
+                repo.remotes.origin.pull()
+        else:
+            repo.remotes.origin.pull()
     else:
-        url = repo_url
-        if token:
-            url = repo_url.replace("https://", f"https://{token}@")
-        repo = git.Repo.clone_from(url, local_path, branch=branch)
+        if protocol == "ssh":
+            repo = git.Repo.clone_from(repo_url, local_path, **clone_kwargs)
+        else:
+            url = repo_url
+            if token:
+                if username:
+                    url = repo_url.replace("https://", f"https://{username}:{token}@")
+                else:
+                    url = repo_url.replace("https://", f"https://{token}@")
+            repo = git.Repo.clone_from(url, local_path, branch=branch)
 
     sp_files = glob.glob(os.path.join(local_path, sp_dir, "*.sql"))
     result = []
@@ -34,6 +55,19 @@ def pull_sp_from_git(repo_url: str, branch: str, token: str, sp_dir: str, local_
             sp_text = fh.read()
         result.append({"sp_name": sp_name, "sp_text": sp_text, "file_path": f})
     return result
+
+
+def _setup_ssh_key(ssh_key: str) -> str:
+    """设置 SSH key 到临时文件并返回 GIT_SSH_COMMAND"""
+    import stat
+    import tempfile
+    ssh_dir = os.path.join(tempfile.gettempdir(), "lineage_ssh")
+    os.makedirs(ssh_dir, exist_ok=True)
+    key_path = os.path.join(ssh_dir, "id_rsa")
+    with open(key_path, "w") as f:
+        f.write(ssh_key.strip() + "\n")
+    os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
+    return f"ssh -i {key_path} -o StrictHostKeyChecking=no"
 
 
 def pull_sp_from_db(engine, schema: str = "dbo") -> list[dict]:

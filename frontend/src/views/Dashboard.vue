@@ -1,5 +1,26 @@
 <template>
   <div>
+    <!-- Admin 全局概览 -->
+    <el-card v-if="isAdmin" shadow="never" style="margin-bottom: 20px">
+      <template #header><span class="page-title">全局概览（Admin）</span></template>
+      <el-table :data="adminOverview" border stripe v-loading="adminLoading" empty-text="暂无数据">
+        <el-table-column prop="workspace_name" label="工作空间" min-width="160" />
+        <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="owner_name" label="所有者" width="120" />
+        <el-table-column prop="db_mode" label="数据库模式" width="110" align="center" />
+        <el-table-column prop="job_count" label="作业数" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag type="primary">{{ row.job_count }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" link @click="switchToWs(row.workspace_id)">进入</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <!-- 统计卡片 -->
     <el-row :gutter="20">
       <el-col :span="6" v-for="card in cards" :key="card.key">
@@ -65,6 +86,10 @@ import api from '@/api'
 
 const store = useAppStore()
 const stats = ref<any>({})
+const adminOverview = ref<any[]>([])
+const adminLoading = ref(false)
+
+const isAdmin = computed(() => store.user?.role === 'GLOBAL_ADMIN')
 
 const roleLabel = computed(() => {
   const r = store.currentWorkspace?.role
@@ -118,10 +143,31 @@ async function loadStats() {
   }
 }
 
-onMounted(loadStats)
+async function loadAdminOverview() {
+  if (!isAdmin.value) return
+  adminLoading.value = true
+  try {
+    adminOverview.value = await api.get('/workspaces/admin-overview')
+  } catch {
+    adminOverview.value = []
+  } finally {
+    adminLoading.value = false
+  }
+}
 
-// 工作空间切换时自动刷新
-watch(() => store.wsVersion, loadStats)
+function switchToWs(wsId: string) {
+  store.setWorkspace(wsId)
+}
+
+onMounted(async () => {
+  await loadAdminOverview()
+  await loadStats()
+})
+
+watch(() => store.wsVersion, async () => {
+  await loadAdminOverview()
+  await loadStats()
+})
 </script>
 
 <style scoped>

@@ -21,15 +21,31 @@
           </el-radio-group>
         </el-form-item>
         <template v-if="source.type === 'git'">
+          <el-form-item label="协议">
+            <el-radio-group v-model="source.config.git_protocol">
+              <el-radio value="https">HTTPS (账号密码)</el-radio>
+              <el-radio value="ssh">Git (SSH密钥)</el-radio>
+            </el-radio-group>
+          </el-form-item>
           <el-form-item label="仓库URL">
-            <el-input v-model="source.config.url" placeholder="https://git.example.com/repo.git" />
+            <el-input v-model="source.config.url" :placeholder="source.config.git_protocol === 'ssh' ? 'git@git.example.com:repo.git' : 'https://git.example.com/repo.git'" />
           </el-form-item>
           <el-form-item label="分支">
             <el-input v-model="source.config.branch" placeholder="main" />
           </el-form-item>
-          <el-form-item label="Token">
-            <el-input v-model="source.config.token" placeholder="访问令牌（可空）" />
-          </el-form-item>
+          <template v-if="source.config.git_protocol === 'https'">
+            <el-form-item label="账号">
+              <el-input v-model="source.config.username" placeholder="Git账号" />
+            </el-form-item>
+            <el-form-item label="密码/Token">
+              <el-input v-model="source.config.token" placeholder="访问令牌或个人密码" show-password />
+            </el-form-item>
+          </template>
+          <template v-else>
+            <el-form-item label="SSH密钥">
+              <el-input v-model="source.config.ssh_key" type="textarea" :rows="4" placeholder="粘贴SSH私钥内容" />
+            </el-form-item>
+          </template>
           <el-form-item label="SP目录">
             <el-input v-model="source.config.sp_dir" placeholder="/" />
           </el-form-item>

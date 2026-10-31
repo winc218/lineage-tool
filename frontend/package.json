@@ -16,7 +16,8 @@
     "element-plus": "^2.6.0",
     "@element-plus/icons-vue": "^2.3.0",
     "@antv/g6": "^4.8.0",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "mermaid": "^10.9.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",

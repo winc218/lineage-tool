@@ -29,8 +29,10 @@
         <el-menu-item index="graph" :route="{ name: 'graph' }">血缘图</el-menu-item>
         <el-menu-item index="jobs" :route="{ name: 'jobs' }">作业管理</el-menu-item>
         <el-menu-item index="sp" :route="{ name: 'sp' }">SP校验</el-menu-item>
+        <el-menu-item index="mermaid" :route="{ name: 'mermaid' }">流程图</el-menu-item>
         <el-menu-item index="workspace" :route="{ name: 'workspace' }">工作空间</el-menu-item>
         <el-menu-item v-if="isAdmin" index="users" :route="{ name: 'users' }">用户管理</el-menu-item>
+        <el-menu-item v-if="isAdmin" index="db-admin" :route="{ name: 'db-admin' }">数据库管理</el-menu-item>
       </el-menu>
       <!-- 用户区域：头像 + 用户名 + 下拉菜单 -->
       <el-dropdown @command="onCommand" trigger="click">
@@ -62,8 +64,21 @@
       </el-dropdown>
     </el-header>
     <el-main>
-      <router-view v-if="store.currentWorkspace || route.name === 'users' || route.name === 'workspace'" />
+      <router-view v-if="store.currentWorkspace || route.name === 'users' || route.name === 'workspace'" v-slot="{ Component }">
+        <template v-if="Component">
+          <Suspense>
+            <component :is="Component" />
+            <template #fallback>
+              <div style="text-align: center; padding: 80px">
+                <el-icon class="is-loading" :size="32"><Loading /></el-icon>
+                <p style="color: #909399; margin-top: 12px">页面加载中...</p>
+              </div>
+            </template>
+          </Suspense>
+        </template>
+      </router-view>
       <div v-else style="text-align: center; padding: 80px">
+        <el-icon class="is-loading" :size="48" v-if="!store.workspaces.length"><Loading /></el-icon>
         <p style="color: #909399">请先选择或创建工作空间</p>
         <el-button type="primary" @click="$router.push('/workspace')">去创建</el-button>
       </div>
@@ -93,7 +108,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Setting, SwitchButton, Key } from '@element-plus/icons-vue'
+import { Setting, SwitchButton, Key, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAppStore } from '@/stores/app'
 import api from '@/api'

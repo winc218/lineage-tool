@@ -30,7 +30,7 @@ def get_db():
 
 def init_db():
     """建表 + 自动迁移 + 初始化管理员"""
-    from app.models import user, workspace, job, sp  # noqa: F401 触发模型注册
+    from app.models import user, workspace, job, sp, mermaid  # noqa: F401 触发模型注册
     Base.metadata.create_all(bind=engine)
     _auto_migrate()
     _init_admin()

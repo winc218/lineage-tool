@@ -14,7 +14,12 @@
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">将 Excel 文件拖到此处，或<em>点击上传</em></div>
           <template #tip>
-            <div class="el-upload__tip">仅支持 .xlsx / .xls 格式</div>
+            <div class="el-upload__tip">
+              仅支持 .xlsx / .xls 格式
+              <el-link type="primary" style="margin-left: 12px" @click.stop="downloadTemplate">
+                <el-icon><Download /></el-icon> 下载导入模板
+              </el-link>
+            </div>
           </template>
         </el-upload>
       </div>
@@ -34,7 +39,7 @@
     <div v-if="step === 1" class="step-content">
       <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px">
         <template #title>
-          系统已自动匹配列名，请确认映射。必填字段：作业名、作业类型、源表、目标表、存过名称。
+          系统已自动匹配列名，请确认映射。必填字段：作业名、源表、目标表。
         </template>
       </el-alert>
       <el-table :data="mappingRows" border size="small">
@@ -78,8 +83,16 @@
 
     <!-- Step 2: 预览 -->
     <div v-if="step === 2" class="step-content">
-      <el-alert v-if="validateResult.errors.length" type="warning" :closable="false" show-icon style="margin-bottom: 16px">
-        共 {{ validateResult.errors.length }} 条错误
+      <el-alert
+        v-if="validateResult.errors.length"
+        type="warning"
+        show-icon
+        style="margin-bottom: 16px; cursor: pointer"
+        @click="errorsDialogVisible = true"
+      >
+        <template #title>
+          共 {{ validateResult.errors.length }} 条错误，<el-link type="warning" :underline="true">点击查看详情</el-link>
+        </template>
       </el-alert>
       <el-table :data="validateResult.preview.slice(0, 50)" border size="small" max-height="450">
         <el-table-column
@@ -100,6 +113,21 @@
       </div>
     </div>
 
+    <!-- 错误详情弹窗 -->
+    <el-dialog v-model="errorsDialogVisible" title="校验错误详情" width="700px" top="5vh">
+      <el-table :data="validateResult.errors" border size="small" max-height="500" empty-text="无错误">
+        <el-table-column type="index" label="序号" width="60" align="center" />
+        <el-table-column label="错误信息" prop="toString">
+          <template #default="{ row }">
+            <span style="color: #f56c6c">{{ row }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="errorsDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <!-- Step 3: 完成 -->
     <div v-if="step === 3" class="step-content">
       <el-result icon="success" title="导入成功" :sub-title="`批次号: ${importResult.batch_no}，共 ${importResult.job_count} 个作业`">
@@ -115,7 +143,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { UploadFilled, Download } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import api from '@/api'
 
@@ -128,6 +156,7 @@ const requiredFields = ref<string[]>([])
 const mappingRows = ref<{ excelCol: string; sysField: string; autoMatched: boolean }[]>([])
 const validateResult = reactive<any>({ errors: [], preview: [], total_valid: 0, total_invalid: 0 })
 const importResult = ref<any>({})
+const errorsDialogVisible = ref(false)
 
 const FIELD_LABELS: Record<string, string> = {
   job_name: '作业名',
@@ -216,6 +245,10 @@ async function doImport() {
   } catch (e: any) {
     ElMessage.error(e.response?.data?.detail || '导入失败')
   }
+}
+
+function downloadTemplate() {
+  window.open('/api/import/template', '_blank')
 }
 </script>
 

@@ -85,6 +85,9 @@ def pull_sp(
                 config["url"], config.get("branch", "main"),
                 config.get("token", ""), config.get("sp_dir", "/"),
                 local_path,
+                protocol=config.get("git_protocol", "https"),
+                username=config.get("username", ""),
+                ssh_key=config.get("ssh_key", ""),
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Git 拉取失败: {e}")

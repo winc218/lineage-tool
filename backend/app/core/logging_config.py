@@ -1,6 +1,8 @@
 """日志配置"""
 import logging
 import os
+import sys
+import traceback
 from logging.handlers import TimedRotatingFileHandler
 
 
@@ -20,13 +22,28 @@ def setup_logging():
         when="midnight", backupCount=7, encoding="utf-8",
     )
     file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.DEBUG)
 
     # stdout handler
-    stream_handler = logging.StreamHandler()
+    stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(fmt)
+    stream_handler.setLevel(logging.INFO)
 
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(logging.DEBUG)
     root.handlers.clear()
     root.addHandler(file_handler)
     root.addHandler(stream_handler)
+
+    # 抑制第三方库的过多日志
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def log_exception(logger: logging.Logger, e: Exception, context: str = ""):
+    """统一异常日志格式，包含完整堆栈"""
+    tb = traceback.format_exc()
+    if context:
+        logger.error(f"[{context}] {type(e).__name__}: {e}\n{tb}")
+    else:
+        logger.error(f"{type(e).__name__}: {e}\n{tb}")

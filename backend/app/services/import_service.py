@@ -12,8 +12,8 @@ from app.models.job import Job, JobSource, JobTarget, TableMeta, FieldMapping
 
 
 # ===== 系统字段定义 =====
-# 必填字段：作业名、作业类型、源表、目标表、存过名称
-REQUIRED_FIELDS = ["job_name", "job_type", "source_tables", "target_tables", "sp_name"]
+# 必填字段：作业名、源表、目标表
+REQUIRED_FIELDS = ["job_name", "source_tables", "target_tables"]
 
 # 可选字段
 OPTIONAL_FIELDS = ["field_mappings", "schedule", "description"]
@@ -109,6 +109,8 @@ def import_rows(
     db: Session, workspace_id: str, rows: list[dict], source_file: str = ""
 ) -> dict:
     """将校验后的行写入数据库，返回统计"""
+    import logging
+    logger = logging.getLogger(__name__)
     batch_no = str(uuid.uuid4())[:8]
     now = datetime.now(timezone.utc)
     table_cache: dict[str, TableMeta] = {}
@@ -116,11 +118,14 @@ def import_rows(
     try:
         job_count = _do_import_rows(db, workspace_id, rows, source_file, batch_no, now, table_cache)
         db.commit()
-    except Exception:
+        logger.info(f"Import batch {batch_no}: {job_count} jobs committed for workspace {workspace_id}")
+    except Exception as e:
         db.rollback()
+        logger.error(f"Import batch {batch_no} failed for workspace {workspace_id}: {e}")
         raise
 
-    # 导入后重建依赖
+    # 导入后重建依赖（expire all 确保后续查询拿到最新数据）
+    db.expire_all()
     from app.services.lineage_service import rebuild_dependencies
     rebuild_dependencies(db, workspace_id)
 

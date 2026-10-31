@@ -49,6 +49,21 @@ class MemberOut(BaseModel):
 @router.get("", response_model=list[WorkspaceOut])
 def list_my_workspaces(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """列出当前用户可访问的工作空间（普通用户只能看到自己是成员的工作空间）"""
+    if user.role == "GLOBAL_ADMIN":
+        # 管理员可以看到所有工作空间
+        rows = (
+            db.query(Workspace, User.display_name)
+            .join(User, User.id == Workspace.owner_id)
+            .all()
+        )
+        # 管理员视角返回角色为 OWNER
+        return [
+            WorkspaceOut(
+                id=ws.id, name=ws.name, description=ws.description,
+                db_mode=ws.db_mode, role="OWNER", owner_name=owner_name,
+            )
+            for ws, owner_name in rows
+        ]
     rows = (
         db.query(Workspace, WorkspaceMember.role, User.display_name)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
@@ -63,6 +78,31 @@ def list_my_workspaces(user: User = Depends(get_current_user), db: Session = Dep
         )
         for ws, role, owner_name in rows
     ]
+
+
+@router.get("/admin-overview")
+def admin_overview(
+    user: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin全局概览：每个工作空间的作业数和统计"""
+    from app.models.job import Job
+    from sqlalchemy import func
+    all_ws = db.query(Workspace).all()
+    result = []
+    for ws in all_ws:
+        job_count = db.query(func.count(Job.id)).filter(Job.workspace_id == ws.id).scalar() or 0
+        owner = db.query(User).filter(User.id == ws.owner_id).first()
+        result.append({
+            "workspace_id": ws.id,
+            "workspace_name": ws.name,
+            "description": ws.description,
+            "owner_name": owner.display_name if owner else "",
+            "db_mode": ws.db_mode,
+            "job_count": job_count,
+            "created_at": ws.created_at.isoformat() if ws.created_at else None,
+        })
+    return result
 
 
 @router.post("", response_model=WorkspaceOut)

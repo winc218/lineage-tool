@@ -192,14 +192,14 @@ class TestJobManagement:
         job_id = res.json()[0]["id"]
         res = client.put(
             f"/api/jobs/{workspace_id}/{job_id}",
-            json={"description": "更新描述", "owner": "张三"},
+            json={"description": "更新描述", "sp_name": "test_sp_update"},
             headers=headers,
         )
         assert res.status_code == 200
         # 验证更新
         res = client.get(f"/api/jobs/detail/{workspace_id}/{job_id}", headers=headers)
         assert res.json()["description"] == "更新描述"
-        assert res.json()["owner"] == "张三"
+        assert res.json()["sp_name"] == "test_sp_update"
 
 
 class TestSpReconciliation:

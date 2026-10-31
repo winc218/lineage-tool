@@ -1,17 +1,25 @@
 """血缘解析服务 - 基于 networkx 构建有向图，计算作业依赖、环路、影响/溯源"""
+import logging
 from collections import defaultdict
 import networkx as nx
 from sqlalchemy.orm import Session
 
 from app.models.job import Job, JobSource, JobTarget, JobDependency, TableMeta
 
+logger = logging.getLogger(__name__)
+
 
 def build_graph(db: Session, workspace_id: str) -> nx.DiGraph:
-    """构建工作空间的有向依赖图（批量加载避免 N+1）"""
+    """构建工作空间的有向依赖图（批量加载避免 N+1，优化大数据量性能）"""
     g = nx.DiGraph()
-    jobs = db.query(Job).filter_by(workspace_id=workspace_id).all()
+
+    # 使用 yield_per 分批加载以降低内存峰值（对 3000+ 作业）
+    jobs = db.query(Job).filter_by(workspace_id=workspace_id).yield_per(500)
+    job_count = 0
     for j in jobs:
         g.add_node(j.id, job_name=j.job_name, job_type=j.job_type, sp_name=j.sp_name)
+        job_count += 1
+    logger.debug(f"build_graph: loaded {job_count} jobs for workspace {workspace_id}")
 
     # 批量加载所有源/目标关系与表元数据，避免 N+1
     all_targets = db.query(JobTarget).filter_by(workspace_id=workspace_id).all()
@@ -36,6 +44,8 @@ def build_graph(db: Session, workspace_id: str) -> nx.DiGraph:
         for producer in table_name_to_producers.get(t.table_name, []):
             if producer != js.job_id:
                 g.add_edge(producer, js.job_id, via_table=t.table_name)
+
+    logger.debug(f"build_graph: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges")
     return g
 
 

@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('@/views/Login.vue') },
@@ -13,12 +13,16 @@ const routes = [
       { path: 'sp', name: 'sp', component: () => import('@/views/SPReconcile.vue') },
       { path: 'workspace', name: 'workspace', component: () => import('@/views/Workspace.vue') },
       { path: 'users', name: 'users', component: () => import('@/views/UserManage.vue') },
+      { path: 'db-admin', name: 'db-admin', component: () => import('@/views/DBAdmin.vue') },
+      { path: 'mermaid', name: 'mermaid', component: () => import('@/views/MermaidEditor.vue') },
     ],
   },
+  // 404 fallback 重定向到首页
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes,
 })
 

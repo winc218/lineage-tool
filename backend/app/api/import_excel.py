@@ -1,5 +1,8 @@
 """Excel 导入 API"""
+import os
+import io
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import json
@@ -12,6 +15,7 @@ from app.services.import_service import (
     parse_excel, validate_mapping, validate_rows, import_rows,
     SYSTEM_FIELDS, REQUIRED_FIELDS, auto_match_mapping,
 )
+from openpyxl import Workbook
 
 router = APIRouter()
 
@@ -85,6 +89,104 @@ async def confirm_import(
         raise HTTPException(status_code=400, detail="无有效数据可导入")
     stats = import_rows(db, workspace_id, result["valid_rows"], source_file=file.filename)
     return stats
+
+
+@router.get("/batches/{workspace_id}")
+def list_batches(
+    workspace_id: str,
+    member: WorkspaceMember = Depends(get_workspace_member),
+    db: Session = Depends(get_db),
+):
+    """列出工作空间的所有导入批次"""
+    from app.models.job import Job
+    from sqlalchemy import func, distinct
+    rows = (
+        db.query(
+            Job.import_batch,
+            Job.source_file,
+            func.count(Job.id).label("job_count"),
+            func.max(Job.updated_at).label("imported_at"),
+        )
+        .filter(Job.workspace_id == workspace_id, Job.import_batch != "")
+        .group_by(Job.import_batch)
+        .order_by(func.max(Job.updated_at).desc())
+        .all()
+    )
+    return [
+        {
+            "batch_no": r.import_batch,
+            "source_file": r.source_file,
+            "job_count": r.job_count,
+            "imported_at": r.imported_at.isoformat() if r.imported_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/batches/{workspace_id}/{batch_no}")
+def batch_detail(
+    workspace_id: str,
+    batch_no: str,
+    member: WorkspaceMember = Depends(get_workspace_member),
+    db: Session = Depends(get_db),
+):
+    """获取指定批次的作业列表"""
+    from app.models.job import Job
+    jobs = (
+        db.query(Job)
+        .filter_by(workspace_id=workspace_id, import_batch=batch_no)
+        .order_by(Job.job_name)
+        .all()
+    )
+    return {
+        "batch_no": batch_no,
+        "job_count": len(jobs),
+        "jobs": [
+            {
+                "id": j.id,
+                "job_name": j.job_name,
+                "job_type": j.job_type,
+                "sp_name": j.sp_name,
+                "source_file": j.source_file,
+                "updated_at": j.updated_at.isoformat() if j.updated_at else None,
+            }
+            for j in jobs
+        ],
+    }
+
+
+@router.get("/template")
+def download_template():
+    """下载 Excel 导入模板"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "作业血缘关系"
+    # 表头
+    headers = ["作业名称", "作业类型", "源表", "目标表", "存过名称", "字段映射", "调度", "描述"]
+    ws.append(headers)
+    # 示例数据
+    examples = [
+        ["etl_user_dmt_daily", "ETL", "dbo.t_ods_user", "dbo.t_dmt_user_summary", "etl_user_dmt_daily",
+         "[INSERT] dbo.t_ods_user.user_id -> dbo.t_dmt_user_summary.user_id\n[UPDATE] dbo.t_ods_user.name -> dbo.t_dmt_user_summary.name", "daily", "用户汇总ETL作业"],
+        ["etl_order_process", "ETL", "dbo.t_ods_order", "dbo.t_dmt_order_daily", "etl_order_process",
+         "[INSERT] dbo.t_ods_order.order_id -> dbo.t_dmt_order_daily.order_id\n[INSERT] dbo.t_ods_order.amount -> dbo.t_dmt_order_daily.total_amount", "daily", "订单处理ETL"],
+        ["etl_inventory_sync", "PROCEDURE", "dbo.t_dmt_order_daily,dbo.t_ods_product", "dbo.t_dmt_inventory", "sp_inventory_sync",
+         "", "hourly", "库存同步存储过程"],
+    ]
+    for row in examples:
+        ws.append(row)
+    # 调整列宽
+    col_widths = [25, 15, 25, 25, 25, 55, 12, 30]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=lineage_import_template.xlsx"},
+    )
 
 
 @router.get("/fields")

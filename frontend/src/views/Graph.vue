@@ -1,7 +1,7 @@
 <template>
   <div class="graph-page">
     <div class="toolbar-row">
-      <div style="display: flex; align-items: center; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
         <el-input
           v-model="keyword"
           placeholder="搜索作业名"
@@ -10,7 +10,7 @@
           @keyup.enter="search"
         />
         <el-button-group>
-          <el-button @click="loadGraph">
+          <el-button @click="loadGraph" :loading="graphLoading">
             <el-icon><Refresh /></el-icon>&nbsp;刷新
           </el-button>
           <el-button @click="autoLayout">
@@ -23,15 +23,23 @@
             <el-icon><FullScreen /></el-icon>&nbsp;适应画布
           </el-button>
         </el-button-group>
+        <el-alert
+          v-if="cycles.length"
+          type="error"
+          :closable="false"
+          show-icon
+          style="margin-left: auto; flex: 0 0 auto"
+        >
+          <template #title>
+            <div style="text-align: center">检测到 {{ cycles.length }} 个环路，环路节点和连线已高亮标记</div>
+          </template>
+        </el-alert>
       </div>
-      <el-alert v-if="cycles.length" type="error" :closable="false" show-icon style="flex: 0 1 auto">
-        检测到 {{ cycles.length }} 个环路
-      </el-alert>
     </div>
-    <div ref="graphContainer" class="graph-container" />
+    <div ref="graphContainer" class="graph-container" v-loading="graphLoading" />
 
     <!-- 作业详情抽屉 -->
-    <el-drawer v-model="drawerVisible" size="520px" :title="detail?.job_name || '作业详情'">
+    <el-drawer v-model="drawerVisible" size="33%" :title="detail?.job_name || '作业详情'">
       <div v-if="detailLoading" style="text-align: center; padding: 40px">
         <el-icon class="is-loading" :size="24"><Loading /></el-icon>
         <p>加载中...</p>
@@ -39,10 +47,15 @@
       <div v-else-if="detail">
         <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
           <el-descriptions-item label="作业名">{{ detail.job_name }}</el-descriptions-item>
-          <el-descriptions-item label="类型">{{ detail.job_type }}</el-descriptions-item>
+          <el-descriptions-item label="SP名" v-if="detail.sp_name">
+            <el-tag type="info">{{ detail.sp_name }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="类型">{{ detail.job_type || '-' }}</el-descriptions-item>
           <el-descriptions-item label="负责人">{{ detail.owner || '-' }}</el-descriptions-item>
           <el-descriptions-item label="调度">{{ detail.schedule || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="描述">{{ detail.description || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="描述">
+            <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit">{{ detail.description || '-' }}</pre>
+          </el-descriptions-item>
         </el-descriptions>
 
         <el-tabs>
@@ -81,14 +94,14 @@
             <div style="margin-bottom: 12px">
               <strong>上游作业 ({{ detail.upstream?.length || 0 }})</strong>
               <div v-for="u in detail.upstream" :key="u.job_id" style="padding: 4px 0">
-                <el-link type="primary" @click="showDetail(u.job_id)">{{ u.job_name }}</el-link>
+                <el-link type="primary" @click="jumpToNode(u.job_id)">{{ u.job_name }}</el-link>
               </div>
               <div v-if="!detail.upstream?.length" style="color: #999">无</div>
             </div>
             <div>
               <strong>下游作业 ({{ detail.downstream?.length || 0 }})</strong>
               <div v-for="d in detail.downstream" :key="d.job_id" style="padding: 4px 0">
-                <el-link type="primary" @click="showDetail(d.job_id)">{{ d.job_name }}</el-link>
+                <el-link type="primary" @click="jumpToNode(d.job_id)">{{ d.job_name }}</el-link>
               </div>
               <div v-if="!detail.downstream?.length" style="color: #999">无</div>
             </div>
@@ -100,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Loading, Refresh, WarnTriangleFilled, FullScreen, Rank } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import api from '@/api'
@@ -112,14 +125,16 @@ const graphContainer = ref<HTMLElement>()
 const drawerVisible = ref(false)
 const detail = ref<any>(null)
 const detailLoading = ref(false)
+const graphLoading = ref(false)
 let graph: any = null
+let cycleNodeIds = new Set<string>()
+let cycleEdgeKeys = new Set<string>()
 
 onMounted(async () => {
   await loadGraph()
   window.addEventListener('resize', onResize)
 })
 
-// 工作空间切换时自动刷新
 watch(() => store.wsVersion, () => loadGraph())
 
 onUnmounted(() => {
@@ -127,7 +142,6 @@ onUnmounted(() => {
   graph?.destroy()
 })
 
-// 窗口大小变化时动态调整画布
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 function onResize() {
   if (!graph || !graphContainer.value) return
@@ -143,9 +157,25 @@ function onResize() {
 
 async function loadGraph() {
   if (!store.currentWorkspace) return
-  const data = await api.get(`/lineage/graph/${store.currentWorkspace.id}`)
-  cycles.value = data.cycles || []
-  await renderGraph(data.nodes, data.edges)
+  graphLoading.value = true
+  try {
+    const data = await api.get(`/lineage/graph/${store.currentWorkspace.id}`)
+    cycles.value = data.cycles || []
+    // 提取环路节点和边
+    cycleNodeIds = new Set<string>()
+    cycleEdgeKeys = new Set<string>()
+    for (const cycle of data.cycles || []) {
+      for (let i = 0; i < cycle.length; i++) {
+        const nodeId = cycle[i].job_id
+        cycleNodeIds.add(nodeId)
+        const nextId = cycle[(i + 1) % cycle.length].job_id
+        cycleEdgeKeys.add(`${nodeId}->${nextId}`)
+      }
+    }
+    await renderGraph(data.nodes, data.edges)
+  } finally {
+    graphLoading.value = false
+  }
 }
 
 async function renderGraph(nodes: any[], edges: any[]) {
@@ -155,8 +185,6 @@ async function renderGraph(nodes: any[], edges: any[]) {
     graph = null
   }
 
-  // 统一使用 dagre 分层布局：从上到下排列，最小化线交叉
-  // dagre 专为 DAG 设计，节点按层级排列，线尽可能不交叉
   graph = new G6.Graph({
     container: graphContainer.value!,
     width: graphContainer.value!.clientWidth,
@@ -165,11 +193,11 @@ async function renderGraph(nodes: any[], edges: any[]) {
     fitViewPadding: 40,
     layout: {
       type: 'dagre',
-      rankdir: 'TB',          // 从上到下分层排列
-      nodesep: 50,            // 同层节点水平间距
-      ranksep: 100,           // 层间垂直间距
-      align: 'UL',            // 居中对齐，减少线交叉
-      controlPoints: false,    // 不用控制点，避免箭头悬空
+      rankdir: 'TB',
+      nodesep: 50,
+      ranksep: 100,
+      align: 'UL',
+      controlPoints: false,
       preventOverlap: true,
       workerEnabled: false,
     },
@@ -193,12 +221,12 @@ async function renderGraph(nodes: any[], edges: any[]) {
       },
     },
     defaultEdge: {
-      type: 'cubic-vertical',          // 纵向贝塞尔曲线，适合 TB 布局，箭头精确锚定节点边界
+      type: 'cubic-vertical',
       style: {
         endArrow: { path: G6.Arrow.triangle(8, 10, 0), fill: '#90a4ae' },
         stroke: '#90a4ae',
         lineWidth: 1.5,
-        lineAppendWidth: 8,            // 增加点击热区
+        lineAppendWidth: 8,
       },
     },
     modes: {
@@ -206,7 +234,6 @@ async function renderGraph(nodes: any[], edges: any[]) {
     },
   })
 
-  // 按作业类型着色
   const typeColors: Record<string, string> = {
     ETL: '#1a5fab',
     PROCEDURE: '#e6a23c',
@@ -214,34 +241,47 @@ async function renderGraph(nodes: any[], edges: any[]) {
     OTHER: '#909399',
   }
 
-  const g6Nodes = nodes.map((n) => ({
-    id: n.id,
-    label: n.label,
-    job_type: n.job_type,
-    style: {
-      stroke: typeColors[n.job_type] || '#1a5fab',
-      fill: '#fff',
-    },
-  }))
+  const g6Nodes = nodes.map((n) => {
+    const isInCycle = cycleNodeIds.has(n.id)
+    return {
+      id: n.id,
+      label: n.label,
+      job_type: n.job_type,
+      style: {
+        stroke: isInCycle ? '#f56c6c' : (typeColors[n.job_type] || '#1a5fab'),
+        fill: isInCycle ? '#fef0f0' : '#fff',
+        lineWidth: isInCycle ? 3 : 2,
+      },
+    }
+  })
 
-  const g6Edges = edges.map((e, i) => ({
-    source: e.source,
-    target: e.target,
-    label: '',
-    style: { stroke: '#bbb' },
-  }))
+  const g6Edges = edges.map((e) => {
+    const edgeKey = `${e.source}->${e.target}`
+    const isInCycle = cycleEdgeKeys.has(edgeKey)
+    return {
+      source: e.source,
+      target: e.target,
+      label: '',
+      style: {
+        stroke: isInCycle ? '#f56c6c' : '#bbb',
+        lineWidth: isInCycle ? 2.5 : 1.5,
+        endArrow: {
+          path: G6.Arrow.triangle(8, 10, 0),
+          fill: isInCycle ? '#f56c6c' : '#90a4ae',
+        },
+      },
+    }
+  })
 
   graph.data({ nodes: g6Nodes, edges: g6Edges })
   graph.render()
 
-  // 点击节点弹出详情抽屉
   graph.on('node:click', (e: any) => {
     const node = e.item
     const model = node.getModel()
     showDetail(model.id)
   })
 
-  // hover 高亮
   graph.on('node:mouseenter', (e: any) => {
     graph.setItemState(e.item, 'hover', true)
   })
@@ -262,13 +302,32 @@ async function showDetail(jobId: string) {
   }
 }
 
+async function jumpToNode(jobId: string) {
+  // 在血缘图中定位并高亮节点
+  if (!graph) return
+  const nodeItem = graph.findById(jobId)
+  if (nodeItem) {
+    // 定位：将节点移到视口中央
+    graph.focusItem(nodeItem, true)
+    // 高亮该节点（不覆盖环路高亮）
+    nodeItem.setState('highlight', true)
+    // 点击节点也显示详情
+    await showDetail(jobId)
+    // 3秒后取消高亮
+    setTimeout(() => {
+      nodeItem.setState('highlight', false)
+    }, 3000)
+  } else {
+    await showDetail(jobId)
+  }
+}
+
 function fitView() {
   graph?.fitView(30)
 }
 
 function autoLayout() {
   if (!graph) return
-  // 重新执行 dagre 分层布局
   graph.updateLayout({
     type: 'dagre',
     rankdir: 'TB',
@@ -278,7 +337,6 @@ function autoLayout() {
     controlPoints: false,
     preventOverlap: true,
   })
-  // 布局完成后自动缩放至适应画布
   setTimeout(() => {
     graph.fitView(30)
   }, 100)
@@ -301,6 +359,8 @@ async function checkCycles() {
   if (!store.currentWorkspace) return
   const res: any = await api.get(`/lineage/cycles/${store.currentWorkspace.id}`)
   cycles.value = res.cycles
+  // 重新加载图以应用高亮
+  await loadGraph()
 }
 
 function operationTagType(op: string) {
